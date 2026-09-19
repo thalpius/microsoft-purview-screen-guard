@@ -9,6 +9,10 @@ A proof of concept that **covers all your screens** when a Microsoft Word docume
 
 It is **fail-closed**: when the guard is unsure, it blocks.
 
+**Demo:** a phone appears in front of the webcam, and the screens are covered.
+
+https://github.com/user-attachments/assets/c2e34a7b-0213-40ee-9867-f499de7329a3
+
 > **Independent proof of concept. Not affiliated with, endorsed by, or supported by Microsoft.**
 > Microsoft, Word and Purview are trademarks of Microsoft Corporation. MIT license.
 > This is a demo of what is possible, **not** a production security product. Read [Limitations](#limitations) first.
