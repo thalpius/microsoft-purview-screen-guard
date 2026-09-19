@@ -54,7 +54,7 @@ block             = sensitive visible  AND  (phone seen  OR  camera NOT healthy)
 | **Privacy of the overlay** | The overlay never shows document names or label names. |
 
 <p align="center">
-  <img src="blocked.png" alt="The overlay picture (blocked.png)" width="200"><br>
+  <img src="blocked.png" alt="The overlay picture (blocked.png)" width="80%"><br>
   <sub>The overlay picture (<code>blocked.png</code>), shown centered on white on every screen.</sub>
 </p>
 
