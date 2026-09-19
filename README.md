@@ -5,7 +5,7 @@
 A proof of concept that **covers all your screens** when a Microsoft Word document labeled *Highly Sensitive* is visible **and** either
 
 - a **phone is seen by the webcam** (so nobody photographs the screen), or
-- the **camera is not healthy** (covered lens, unplugged, in use, model missing, ...).
+- the **camera is not healthy** (covered lens, unplugged, in use, model missing, etc.
 
 It is **fail-closed**: when the guard is unsure, it blocks.
 
