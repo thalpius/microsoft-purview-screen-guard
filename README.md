@@ -1,11 +1,9 @@
 # microsoft-purview-screen-guard
 
-<img src="blocked.png" alt="The overlay picture" width="220" align="right">
-
 A proof of concept that **covers all your screens** when a Microsoft Word document labeled *Highly Sensitive* is visible **and** either
 
 - a **phone is seen by the webcam** (so nobody photographs the screen), or
-- the **camera is not healthy** (covered lens, unplugged, in use, etc.
+- the **camera is not healthy** (covered lens, unplugged, in use, etc.).
 
 It is **fail-closed**: when the guard is unsure, it blocks.
 
@@ -54,6 +52,11 @@ block             = sensitive visible  AND  (phone seen  OR  camera NOT healthy)
 | **Detector health** | The camera also counts as unhealthy if the model file is missing, the model output is not `[1, 84, N]`, the detector throws, or it has not finished a frame for 3 s. |
 | **Overlay** | One borderless topmost window per monitor, created up front and rendered **once** (white background, `blocked.png` centered at up to 60% of the screen). Shown with `SetWindowPos(HWND_TOPMOST, SWP_NOACTIVATE)` and `WS_EX_NOACTIVATE`, so it never takes focus. Topmost is re-asserted every tick while blocked. If the picture is missing or corrupt it falls back to plain white with the single line *Sensitive content hidden*. Blocking never depends on the picture. |
 | **Privacy of the overlay** | The overlay never shows document names or label names. |
+
+<p align="center">
+  <img src="blocked.png" alt="The overlay picture (blocked.png)" width="200"><br>
+  <sub>The overlay picture (<code>blocked.png</code>), shown centered on white on every screen.</sub>
+</p>
 
 ## Requirements
 
