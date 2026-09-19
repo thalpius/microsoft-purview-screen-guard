@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>MicrosoftPurviewScreenGuard</RootNamespace>
+    <!-- OpenCvSharp4 ships an analyzer built for a newer compiler than the .NET 8 SDK's. -->
+    <NoWarn>$(NoWarn);CS9057</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Local, tenant-specific list. Not committed; optional at build time. -->
+    <None Include="blocked-labels.txt" Condition="Exists('blocked-labels.txt')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <!-- Overlay picture. If it is missing or corrupt the overlay falls back to plain white with one line of text. -->
+    <None Include="blocked.png" Condition="Exists('blocked.png')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <!-- YOLOv8n model. Not committed (Ultralytics licence, see .gitignore); a missing model makes the camera unhealthy at run time. -->
+    <None Include="yolov8n.onnx" Condition="Exists('yolov8n.onnx')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.30.0" />
+    <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260627" />
+    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20260627" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,12 @@
+bin/
+obj/
+.vs/
+*.user
+logs/
+yolov8n.onnx
+blocked-labels.txt
+
+# Local test documents, PyTorch weights (model licence) and publish output
+test-docs/
+*.pt
+publish/

@@ -1,0 +1,8 @@
+# Copy this file to blocked-labels.txt and replace the GUIDs with the label GUIDs
+# from your own tenant. One GUID per line. Empty lines and everything after '#'
+# are ignored. Matching is case-insensitive.
+#
+# Sublabels have their own GUID: list every label (and sublabel) that must block.
+
+00000000-0000-0000-0000-000000000001  # FAKE example: Highly Sensitive
+00000000-0000-0000-0000-000000000002  # FAKE example: Highly Sensitive \ All Employees
