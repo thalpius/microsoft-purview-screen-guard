@@ -22,6 +22,12 @@ internal static class PhoneSettings
     /// <summary>The phone stays "seen" this long after the last confirmation.</summary>
     public const long HoldMs = 3000;
 
+    /// <summary>
+    /// While no sensitive document is visible the detector only gets about one frame per this many ms (CPU and battery).
+    /// It must stay well below CameraHealth.DetectorStaleMs, otherwise an idle detector would count as stuck.
+    /// </summary>
+    public const long IdleIntervalMs = 1000;
+
     /// <summary>Frames with a score below this are not logged as "[hit]" (class scores are almost never exactly 0).</summary>
     public const double HitLogMinScore = 0.01;
 

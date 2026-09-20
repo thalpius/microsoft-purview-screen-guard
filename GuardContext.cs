@@ -72,6 +72,7 @@ internal sealed class GuardContext : ApplicationContext
 
         PollKeys();
         _word.Poll();
+        _camera.SetDetectionActive(_word.SensitiveVisible);
         long wordMs = watch.ElapsedMilliseconds;
         Evaluate();
         LogCameraStats();
@@ -198,7 +199,8 @@ internal sealed class GuardContext : ApplicationContext
         _lastStatsTick = now;
         CameraSnapshot snapshot = _camera.GetSnapshot();
         string reason = snapshot.Healthy ? string.Empty : $" reason=\"{snapshot.Reason}\"";
-        Logger.Log($"CAMERA healthy={Lower(snapshot.Healthy)} phoneSeen={Lower(snapshot.PhoneSeen)} {snapshot.Status}{reason}");
+        string mode = _camera.DetectionActive ? "active" : "idle";
+        Logger.Log($"CAMERA healthy={Lower(snapshot.Healthy)} phoneSeen={Lower(snapshot.PhoneSeen)} detector={mode} {snapshot.Status}{reason}");
     }
 
     private void LogIfChanged(CameraSnapshot camera, bool blocked)

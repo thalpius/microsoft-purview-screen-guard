@@ -48,7 +48,7 @@ block             = sensitive visible  AND  (phone seen  OR  camera NOT healthy)
 |---|---|
 | **Label check** | Reads `doc.SensitivityLabel.GetLabel().LabelId` from Word over COM, for **every** Word window (not only the foreground one), every 250 ms. Matches on the label **GUID** (the label name can be empty). Sublabels have their own GUID. If Word cannot be read (busy, dialog open) the previous state is kept. |
 | **Camera health** | A reader thread opens camera 0 (DirectShow) and computes the grayscale standard deviation of every frame. `std < 12` is *blind* (mean brightness is useless because of auto-exposure). The camera is healthy only after 15 consecutive good frames (warm-up), a frame less than 2 s old, and not blind for longer than 300 ms. If it cannot be opened it is retried every second. |
-| **Phone detection** | A second thread runs YOLOv8n (ONNX Runtime, CPU) on the latest frame only and never slows the reader. COCO class 67 (*cell phone*). A phone is *confirmed* by one frame at or above 0.60, or 2 of the last 3 frames at or above 0.40, and stays *seen* for 3 s after the last confirmation. Boxes under 1% of the frame are ignored. |
+| **Phone detection** | A second thread runs YOLOv8n (ONNX Runtime, CPU) on the latest frame only and never slows the reader. It runs on every frame only **while a sensitive document is visible**; otherwise it gets about one frame per second, which keeps it alive and healthy at a fraction of the CPU cost. COCO class 67 (*cell phone*). A phone is *confirmed* by one frame at or above 0.60, or 2 of the last 3 frames at or above 0.40, and stays *seen* for 3 s after the last confirmation. Boxes under 1% of the frame are ignored. |
 | **Detector health** | The camera also counts as unhealthy if the model file is missing, the model output is not `[1, 84, N]`, the detector throws, or it has not finished a frame for 3 s. |
 | **Overlay** | One borderless topmost window per monitor, created up front and rendered **once** (white background, `blocked.png` centered at up to 60% of the screen). Shown with `SetWindowPos(HWND_TOPMOST, SWP_NOACTIVATE)` and `WS_EX_NOACTIVATE`, so it never takes focus. Topmost is re-asserted every tick while blocked. If the picture is missing or corrupt it falls back to plain white with the single line *Sensitive content hidden*. Blocking never depends on the picture. |
 | **Privacy of the overlay** | The overlay never shows document names or label names. |
@@ -142,6 +142,7 @@ There is no config file yet; everything is a constant in the source. The ones yo
 | `MinAreaFraction` | 0.01 | `PhoneDetector.cs` | Ignore boxes smaller than this fraction of the 640x640 input |
 | `HoldMs` | 3000 | `PhoneDetector.cs` | Phone stays *seen* this long after the last confirmation |
 | `HitLogMinScore` | 0.01 | `PhoneDetector.cs` | Lowest frame score printed as `[hit]` (scores are almost never exactly 0) |
+| `IdleIntervalMs` | 1000 | `PhoneDetector.cs` | While no sensitive document is visible the detector gets one frame per this many ms (CPU/battery). Keep it well below `DetectorStaleMs` |
 | `BlindStdDevThreshold` | 12 | `CameraHealth.cs` | Grayscale std deviation below this = blind |
 | `ReadyFrames` | 15 | `CameraHealth.cs` | Consecutive good frames before the camera is healthy |
 | `BlindGraceMs` | 300 | `CameraHealth.cs` | Blindness shorter than this is tolerated |
@@ -178,6 +179,9 @@ A 4-core Windows VM with a built-in camera at 640x480, one 3584x2240 monitor. Yo
 | First Word poll after start | 1.4-2.0 s |
 | Camera open / first frame / warm-up complete | 0.3 s / +1.0 s / +2.4 s after open (slower on the very first launch of new binaries) |
 | YOLOv8n inference (CPU, 2 threads) | 66-112 ms, median about 88 ms |
+| Guard CPU, sensitive document visible (detector on every frame) | about 2.0 of 4 cores (51% of the machine) |
+| Guard CPU, no sensitive document visible | **0.3 cores (7.6%)**, down from 2.1 cores (52%) before the idle mode |
+| Guard CPU, camera reader only (no detector) | 0.13 cores (3%) |
 | Block decision to overlay painted | 11-16 ms (34 ms for the first, cold show) |
 | Confirming frame to overlay painted | 78-125 ms (with a forced 0.9 score) |
 
@@ -194,6 +198,8 @@ This is a demo. Known gaps:
 - **Camera in use.** DirectShow opens the camera exclusively, so during a Teams/Zoom call the guard cannot open it and blocks (fail-closed).
 - **One Word instance.** It attaches with `GetActiveObject`, which finds one running Word; several instances are untested.
 - **Empty label list** means no blocking; a hung Word can freeze the overlay because Word is polled on the UI thread.
+- **Idle detection is slower.** With no sensitive document visible the detector looks at one frame per second, so a phone that appeared during the last second before a sensitive document opens may not be known yet. Once a document is visible every frame is analyzed.
+- **CPU is still high while a sensitive document is visible** (about half of a 4-core VM); the detector runs flat out. A frame-rate cap or motion gating would reduce it at the cost of reaction time.
 - **Thresholds are untuned** against a real phone (tested end to end with a simulated score only). Multiple monitors and layout changes are implemented but were only tested on a single monitor.
 - **No automated tests in the repository** and no CI.
 

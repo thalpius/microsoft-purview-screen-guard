@@ -49,6 +49,10 @@ internal sealed class CameraMonitor : IDisposable
     private DateTime _pendingCapturedAt;
     private volatile bool _detectorAccepting;
 
+    // Full-speed detection only while a sensitive document is visible; starts true so start-up is fail-closed.
+    private readonly DetectionPacer _pacer = new();
+    private volatile bool _detectionActive = true;
+
     private bool _lastRaisedHealthy;
     private bool _lastRaisedPhone;
     private string? _lastProblem;
@@ -94,6 +98,23 @@ internal sealed class CameraMonitor : IDisposable
             long now = Environment.TickCount64;
             return _health.Snapshot(now) with { PhoneSeen = _phone.IsSeen(now) };
         }
+    }
+
+    /// <summary>True while the detector gets every frame (a sensitive document is visible); false = about 1 frame per second.</summary>
+    public bool DetectionActive => _detectionActive;
+
+    /// <summary>Called from the UI thread after every Word poll. Only a change is logged.</summary>
+    public void SetDetectionActive(bool active)
+    {
+        if (_detectionActive == active)
+        {
+            return;
+        }
+
+        _detectionActive = active;
+        Logger.Log(active
+            ? "Phone detector mode: ACTIVE (sensitive document visible, every frame)"
+            : $"Phone detector mode: IDLE (no sensitive document visible, about 1 frame per {PhoneSettings.IdleIntervalMs} ms)");
     }
 
     public void Start()
@@ -234,7 +255,7 @@ internal sealed class CameraMonitor : IDisposable
             }
 
             // Blind frames are not worth an inference (hand over the lens); the blind check above already handles them.
-            if (stdDev.Val0 >= CameraHealth.BlindStdDevThreshold && _detectorAccepting)
+            if (stdDev.Val0 >= CameraHealth.BlindStdDevThreshold && _detectorAccepting && _pacer.ShouldSubmit(_detectionActive, now))
             {
                 SubmitFrame(frame, now);
             }
