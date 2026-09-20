@@ -25,6 +25,7 @@ internal sealed class GuardContext : ApplicationContext
     private int _cameraChangePending;
     private long _lastStatsTick;
     private bool _disposed;
+    private bool _firstTickDone;
     private bool _prevDetectorPhone;
     private bool _prevBlocked;
     private (bool Sensitive, bool Override, bool Detected, bool CameraHealthy, bool Blocked, int Visible)? _lastLogged;
@@ -38,8 +39,6 @@ internal sealed class GuardContext : ApplicationContext
 
         // A handle on this thread lets other threads (Ctrl+C, camera reader) reach the UI thread safely.
         _ = _marshal.Handle;
-
-        Logger.Log("Press P in this console to toggle the manual 'phone seen' override.");
 
         _camera.Changed += OnCameraChanged;
 
@@ -80,8 +79,19 @@ internal sealed class GuardContext : ApplicationContext
         // A slow tick means the UI thread was stalled: overlays cannot react until it returns.
         if (watch.ElapsedMilliseconds > SlowTickMs)
         {
-            Logger.Log($"SLOW poll tick: {watch.ElapsedMilliseconds} ms total ({wordMs} ms in Word poll)");
+            if (!_firstTickDone)
+            {
+                Logger.Info($"first Word poll took {watch.ElapsedMilliseconds} ms (the first COM call to Word is always slow)");
+            }
+            else
+            {
+                Logger.Warn(
+                    $"slow poll tick: {watch.ElapsedMilliseconds} ms ({wordMs} ms in the Word poll); " +
+                    "the overlay cannot react until it ends");
+            }
         }
+
+        _firstTickDone = true;
     }
 
     /// <summary>Runs on the camera reader thread. Coalesces bursts into one pending UI-thread evaluation.</summary>
@@ -136,7 +146,9 @@ internal sealed class GuardContext : ApplicationContext
         if (overlayAppeared && phoneStarted)
         {
             long ms = Environment.TickCount64 - _camera.PhoneEpisodeCaptureTick;
-            Logger.Log($"[reaction] {ms} ms");
+            Logger.Write(
+                LogKind.Phone,
+                new Seg($"reaction: overlay up {ms} ms after the phone frame was captured", ConsoleColor.Green));
         }
 
         _prevDetectorPhone = camera.PhoneSeen;
@@ -156,7 +168,7 @@ internal sealed class GuardContext : ApplicationContext
             string message = $"{ex.GetType().Name}: {ex.Message}";
             if (message != _lastError)
             {
-                Logger.Log("ERROR in guard loop, keeping previous state: " + message);
+                Logger.Error("guard loop failed, keeping the previous state: " + message);
                 _lastError = message;
             }
         }
@@ -184,7 +196,7 @@ internal sealed class GuardContext : ApplicationContext
         {
             // Input is redirected: there is no console to read keys from.
             _keysEnabled = false;
-            Logger.Log("WARNING: console input is not available; the P key override is disabled.");
+            Logger.Warn("console input is not available; the P key override is disabled");
         }
     }
 
@@ -198,11 +210,22 @@ internal sealed class GuardContext : ApplicationContext
 
         _lastStatsTick = now;
         CameraSnapshot snapshot = _camera.GetSnapshot();
-        string reason = snapshot.Healthy ? string.Empty : $" reason=\"{snapshot.Reason}\"";
+        double fps = snapshot.IntervalMs > 0 ? 1000.0 / snapshot.IntervalMs : 0;
+        string head = snapshot.Healthy ? "ok" : $"NOT OK ({snapshot.Reason})";
         string mode = _camera.DetectionActive ? "active" : "idle";
-        Logger.Log($"CAMERA healthy={Lower(snapshot.Healthy)} phoneSeen={Lower(snapshot.PhoneSeen)} detector={mode} {snapshot.Status}{reason}");
+        string phone = snapshot.PhoneSeen ? "SEEN" : "no";
+
+        // The score is only interesting once it is above the noise of an empty scene.
+        string score = snapshot.LastPhoneScore >= PhoneSettings.HitLogMinScore ? $" (score {snapshot.LastPhoneScore:0.00})" : string.Empty;
+        string model = snapshot.ModelStatus == "loaded" ? string.Empty : $" | model {snapshot.ModelStatus}";
+
+        Logger.CameraStatus(
+            snapshot.Healthy,
+            $"{head}  {fps:0} fps | brightness {snapshot.Brightness:0} | contrast {snapshot.StdDev:0} | " +
+            $"AI {snapshot.InferenceMs} ms | detector {mode} | phone {phone}{score}{model}");
     }
 
+    /// <summary>One plain-language line whenever the screen state changes: what it is now, and why.</summary>
     private void LogIfChanged(CameraSnapshot camera, bool blocked)
     {
         (bool Sensitive, bool Override, bool Detected, bool CameraHealthy, bool Blocked, int Visible) state =
@@ -213,12 +236,35 @@ internal sealed class GuardContext : ApplicationContext
         }
 
         _lastLogged = state;
-        Logger.Log(
-            $"STATE sensitive={Lower(state.Sensitive)} phoneOverride={Lower(state.Override)} phoneDetected={Lower(state.Detected)} " +
-            $"cameraHealthy={Lower(state.CameraHealthy)} blocked={Lower(state.Blocked)} overlaysVisible={state.Visible}");
-    }
+        string document = state.Sensitive ? "sensitive document visible" : "no sensitive document visible";
 
-    private static string Lower(bool value) => value ? "true" : "false";
+        if (blocked)
+        {
+            var reasons = new List<string>();
+            if (state.Override)
+            {
+                reasons.Add("phone override (P key)");
+            }
+
+            if (state.Detected)
+            {
+                reasons.Add("phone seen");
+            }
+
+            if (!state.CameraHealthy)
+            {
+                reasons.Add($"camera not healthy: {camera.Reason}");
+            }
+
+            Logger.Screen(true, "BLOCKED", $"{string.Join(" + ", reasons)}  |  {document}  |  overlays visible: {state.Visible}");
+        }
+        else
+        {
+            string phone = state.Override ? "phone: override on" : state.Detected ? "phone: seen" : "phone: none";
+            string cameraText = state.CameraHealthy ? "camera: ok" : $"camera: not healthy ({camera.Reason})";
+            Logger.Screen(false, "clear", $"{document}  |  {phone}  |  {cameraText}");
+        }
+    }
 
     protected override void Dispose(bool disposing)
     {

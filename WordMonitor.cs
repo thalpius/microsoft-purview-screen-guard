@@ -23,7 +23,7 @@ internal sealed class WordMonitor
             case WordStatus.NotRunning:
                 if (_lastStatus != WordStatus.NotRunning)
                 {
-                    Logger.Log("Word not running");
+                    Logger.Write(LogKind.Word, "Word is not running");
                 }
 
                 _previous.Clear();
@@ -34,7 +34,9 @@ internal sealed class WordMonitor
                 // Keep the previous state; report only when we enter this state.
                 if (_lastStatus != WordStatus.Busy)
                 {
-                    Logger.Log($"Word busy or unreadable ({snapshot.Error}); keeping previous state (sensitive={SensitiveVisible})");
+                    Logger.Warn(
+                        $"Word is busy or unreadable ({snapshot.Error}); keeping the previous state " +
+                        $"(sensitive document visible: {YesNo(SensitiveVisible)})");
                 }
 
                 break;
@@ -42,7 +44,7 @@ internal sealed class WordMonitor
             case WordStatus.Ok:
                 if (_lastStatus == WordStatus.NotRunning)
                 {
-                    Logger.Log("Word detected");
+                    Logger.Write(LogKind.Word, "Word detected");
                 }
 
                 _previous = ReportChanges(_previous, snapshot.Windows);
@@ -63,11 +65,11 @@ internal sealed class WordMonitor
         {
             if (!previous.TryGetValue(window.Hwnd, out WordWindowState? old))
             {
-                Logger.Log("OPENED  " + Describe(window));
+                Logger.Write(LogKind.Word, Describe("opened", window));
             }
             else if (old != window)
             {
-                Logger.Log("CHANGED " + Describe(window));
+                Logger.Write(LogKind.Word, Describe("changed", window));
             }
         }
 
@@ -75,18 +77,36 @@ internal sealed class WordMonitor
         {
             if (!current.ContainsKey(old.Hwnd))
             {
-                Logger.Log("CLOSED  " + Describe(old));
+                Logger.Write(LogKind.Word, Describe("closed", old));
             }
         }
 
         return current;
     }
 
-    private static string Describe(WordWindowState w)
+    /// <summary>
+    /// One readable line per Word window: what happened, the document, its label GUID (the value to put in
+    /// blocked-labels.txt), whether that label is in the block list, and whether the window counts as visible.
+    /// </summary>
+    private static Seg[] Describe(string what, WordWindowState w)
     {
-        string label = w.LabelUnavailable ? "(label API unavailable)" : w.LabelId ?? "(no label)";
-        return $"\"{w.DocumentName}\"  label={label}  blocked={YesNo(w.Blocked)}  " +
-               $"visible={YesNo(w.Visible)}  minimized={YesNo(w.Minimized)}  hwnd=0x{w.Hwnd:X}";
+        string label = w.LabelUnavailable ? "label API unavailable" : w.LabelId is null ? "no label" : $"label {w.LabelId}";
+        Seg protection = w.Blocked
+            ? new Seg("IN BLOCK LIST", ConsoleColor.Red)
+            : new Seg("not in block list", ConsoleColor.DarkGray);
+        Seg visibility = !w.Visible ? new Seg("hidden", ConsoleColor.DarkGray)
+            : w.Minimized ? new Seg("minimized", ConsoleColor.DarkGray)
+            : new Seg("visible", ConsoleColor.Green);
+
+        return new[]
+        {
+            new Seg(what.PadRight(8), ConsoleColor.Gray),
+            new Seg($"\"{w.DocumentName}\"", ConsoleColor.White),
+            new Seg("   " + label + "   ", ConsoleColor.Gray),
+            protection,
+            new Seg("   ", null),
+            visibility,
+        };
     }
 
     private static string YesNo(bool value) => value ? "yes" : "no";

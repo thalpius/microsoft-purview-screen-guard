@@ -13,11 +13,13 @@ internal static class Program
         // The UI thread paints the overlay; keep it ahead of the detector (BelowNormal) and the camera reader (Normal).
         Thread.CurrentThread.Priority = ThreadPriority.AboveNormal;
 
-        Logger.Log("Microsoft Purview Screen Guard - milestone 5 (overlay picture). Ctrl+C to stop.");
-        Logger.Log("Thread priorities: UI AboveNormal, camera reader Normal, phone detector BelowNormal");
+        Logger.Banner(
+            "Microsoft Purview Screen Guard   -   proof of concept",
+            "Covers all screens when a sensitive Word document is visible AND (a phone is seen OR the camera is not healthy).",
+            "Keys: P = toggle the manual \"phone seen\" override (debug)    Ctrl+C = stop");
 
-        var blocked = BlockedLabels.Load(AppContext.BaseDirectory, msg => Logger.Log("WARNING: " + msg));
-        Logger.Log($"Blocked label GUIDs loaded: {blocked.Count}");
+        var blocked = BlockedLabels.Load(AppContext.BaseDirectory, Logger.Warn);
+        Logger.Info($"{blocked.Count} blocked label GUID(s) loaded");
 
         using var context = new GuardContext(blocked);
         Console.CancelKeyPress += (_, e) =>
@@ -28,7 +30,7 @@ internal static class Program
 
         Application.Run(context);
 
-        Logger.Log("Stopped.");
+        Logger.Info("stopped");
         return 0;
     }
 }

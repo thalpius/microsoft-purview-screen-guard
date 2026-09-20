@@ -53,6 +53,13 @@ internal sealed class CameraMonitor : IDisposable
     private readonly DetectionPacer _pacer = new();
     private volatile bool _detectionActive = true;
 
+    // One phone sighting (from the first confirmation until the hold runs out), for the summary line. Guarded by _gate.
+    private bool _episodeActive;
+    private long _episodeStartTick;
+    private long _episodeLastConfirmTick;
+    private double _episodePeak;
+    private int _episodeCandidateFrames;
+
     private bool _lastRaisedHealthy;
     private bool _lastRaisedPhone;
     private string? _lastProblem;
@@ -112,9 +119,11 @@ internal sealed class CameraMonitor : IDisposable
         }
 
         _detectionActive = active;
-        Logger.Log(active
-            ? "Phone detector mode: ACTIVE (sensitive document visible, every frame)"
-            : $"Phone detector mode: IDLE (no sensitive document visible, about 1 frame per {PhoneSettings.IdleIntervalMs} ms)");
+        Logger.Write(
+            LogKind.Phone,
+            active
+                ? "detector ACTIVE: sensitive document visible, every frame is analyzed"
+                : $"detector IDLE: no sensitive document visible, one frame per {PhoneSettings.IdleIntervalMs / 1000.0:0.#} s (saves CPU)");
     }
 
     public void Start()
@@ -175,7 +184,7 @@ internal sealed class CameraMonitor : IDisposable
         }
 
         _lastProblem = null;
-        Logger.Log($"Camera opened: +{watch.ElapsedMilliseconds} ms since open started (app uptime {Logger.Uptime.ElapsedMilliseconds} ms)");
+        Logger.Write(LogKind.Camera, $"opened after {watch.ElapsedMilliseconds} ms (app uptime {Logger.Uptime.Elapsed.TotalSeconds:0.0} s)");
         return cap;
     }
 
@@ -214,7 +223,7 @@ internal sealed class CameraMonitor : IDisposable
 
                 if (now - firstFailTick >= ReadFailReopenMs)
                 {
-                    Logger.Log("Camera stream stopped; closing and reopening");
+                    Logger.Warn("camera stream stopped; closing and reopening the camera");
                     return;
                 }
 
@@ -238,7 +247,7 @@ internal sealed class CameraMonitor : IDisposable
             if (!firstFrameLogged)
             {
                 firstFrameLogged = true;
-                Logger.Log($"Camera first frame: +{openWatch.ElapsedMilliseconds} ms since open started (app uptime {Logger.Uptime.ElapsedMilliseconds} ms)");
+                Logger.Write(LogKind.Camera, $"first frame after {openWatch.ElapsedMilliseconds} ms (the first frames are usually black)");
             }
 
             bool justWarmedUp;
@@ -249,9 +258,9 @@ internal sealed class CameraMonitor : IDisposable
 
             if (justWarmedUp)
             {
-                Logger.Log(
-                    $"Camera warm-up complete ({CameraHealth.ReadyFrames} good frames): +{openWatch.ElapsedMilliseconds} ms since open started " +
-                    $"(app uptime {Logger.Uptime.ElapsedMilliseconds} ms)");
+                Logger.Write(
+                    LogKind.Camera,
+                    $"warm-up complete after {openWatch.ElapsedMilliseconds} ms ({CameraHealth.ReadyFrames} good frames in a row)");
             }
 
             // Blind frames are not worth an inference (hand over the lens); the blind check above already handles them.
@@ -323,15 +332,18 @@ internal sealed class CameraMonitor : IDisposable
                 long inferenceMs = watch.ElapsedMilliseconds;
                 long done = Environment.TickCount64;
 
+                bool confirmed;
                 lock (_gate)
                 {
                     _health.OnDetection(done, score, inferenceMs);
-                    _phone.OnFrame(done, captureTick, score);
+                    confirmed = _phone.OnFrame(done, captureTick, score);
+                    TrackEpisode(done, score, confirmed);
                 }
 
                 if (score >= PhoneSettings.HitLogMinScore)
                 {
-                    Logger.Log($"[hit] {score:F2} at {capturedAt:HH:mm:ss.fff}");
+                    (string verdict, ConsoleColor color) = DescribeHit(score, confirmed);
+                    Logger.Hit(capturedAt, score, verdict, color);
                 }
 
                 RaiseIfChanged();
@@ -346,7 +358,7 @@ internal sealed class CameraMonitor : IDisposable
                 _health.OnDetectorFailed(reason);
             }
 
-            Logger.Log($"Phone detector FAILED, camera counts as unhealthy (fail-closed): {reason}");
+            Logger.Error($"phone detector FAILED: {reason}. The camera counts as unhealthy and screens stay covered (fail-closed)");
             RaiseIfChanged();
         }
         finally
@@ -370,9 +382,9 @@ internal sealed class CameraMonitor : IDisposable
                 _health.OnModelLoaded();
             }
 
-            Logger.Log(
-                $"Phone detector: model loaded ({PhoneSettings.ModelFileName}, load {detector.LoadMs} ms, " +
-                $"warm-up inference {warmUpMs} ms, app uptime {Logger.Uptime.ElapsedMilliseconds} ms)");
+            Logger.Write(
+                LogKind.Phone,
+                $"detector ready: {PhoneSettings.ModelFileName} (model load {detector.LoadMs} ms, warm-up inference {warmUpMs} ms)");
             RaiseIfChanged();
             return detector;
         }
@@ -386,7 +398,7 @@ internal sealed class CameraMonitor : IDisposable
                 _health.OnModelNotLoaded(reason);
             }
 
-            Logger.Log($"Phone detector: model NOT loaded: {reason}. Camera counts as unhealthy (fail-closed).");
+            Logger.Error($"model NOT loaded: {reason}. The camera counts as unhealthy and screens stay covered (fail-closed)");
             RaiseIfChanged();
             return null;
         }
@@ -403,6 +415,7 @@ internal sealed class CameraMonitor : IDisposable
         bool phoneChanged;
         bool phoneSeen;
         double score;
+        string? summary = null;
         lock (_gate)
         {
             long now = Environment.TickCount64;
@@ -418,16 +431,85 @@ internal sealed class CameraMonitor : IDisposable
             score = snapshot.LastPhoneScore;
             _lastRaisedHealthy = snapshot.Healthy;
             _lastRaisedPhone = phoneSeen;
+
+            if (phoneChanged && !phoneSeen && _episodeActive)
+            {
+                double inViewSeconds = (_episodeLastConfirmTick - _episodeStartTick) / 1000.0;
+                summary =
+                    $"in view {inViewSeconds:0.0} s, peak score {_episodePeak:0.00}, " +
+                    $"{_episodeCandidateFrames} frame(s) at or above {PhoneSettings.MinScore:0.00}";
+                _episodeActive = false;
+            }
         }
 
         if (phoneChanged)
         {
-            Logger.Log(phoneSeen
-                ? $"PHONE state: SEEN (frame score {score:F2}; stays seen for {PhoneSettings.HoldMs} ms after the last confirmation)"
-                : $"PHONE state: cleared (no confirmation for {PhoneSettings.HoldMs} ms)");
+            if (phoneSeen)
+            {
+                Logger.Write(
+                    LogKind.Phone,
+                    new Seg("SEEN", ConsoleColor.Red),
+                    new Seg($"  confirmed at score {score:0.00}; stays seen for {PhoneSettings.HoldMs / 1000.0:0.#} s after the last confirmation", ConsoleColor.Gray));
+            }
+            else
+            {
+                Logger.Write(
+                    LogKind.Phone,
+                    new Seg("cleared", ConsoleColor.Green),
+                    new Seg($"  {summary ?? "no confirmation for " + PhoneSettings.HoldMs / 1000.0 + " s"}", ConsoleColor.Gray));
+            }
         }
 
         Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Statistics of one phone sighting, printed as a single summary line when it ends. Call under <c>_gate</c>.</summary>
+    private void TrackEpisode(long now, double score, bool confirmed)
+    {
+        if (confirmed && !_episodeActive)
+        {
+            _episodeActive = true;
+            _episodeStartTick = now;
+            _episodePeak = 0;
+            _episodeCandidateFrames = 0;
+        }
+
+        if (!_episodeActive)
+        {
+            return;
+        }
+
+        _episodePeak = Math.Max(_episodePeak, score);
+        if (score >= PhoneSettings.MinScore)
+        {
+            _episodeCandidateFrames++;
+        }
+
+        if (confirmed)
+        {
+            _episodeLastConfirmTick = now;
+        }
+    }
+
+    /// <summary>What a frame's score means, in words, and the color to show it in.</summary>
+    private static (string Verdict, ConsoleColor Color) DescribeHit(double score, bool confirmed)
+    {
+        if (confirmed)
+        {
+            if (score >= PhoneSettings.FastScore)
+            {
+                return ("STRONG: confirms the phone on its own", ConsoleColor.Red);
+            }
+
+            // A weak frame can still count as confirmed: 2 of the last 3 frames were above MinScore.
+            return score >= PhoneSettings.MinScore
+                ? ("candidate: confirms the phone (2 of the last 3 frames)", ConsoleColor.Red)
+                : ("this frame is weak, the phone stays confirmed by the 2 frames before it", ConsoleColor.DarkRed);
+        }
+
+        return score >= PhoneSettings.MinScore
+            ? ("candidate: needs a 2nd frame to confirm", ConsoleColor.Yellow)
+            : ("weak", ConsoleColor.DarkGray);
     }
 
     private void ReportProblem(string message)
@@ -435,7 +517,7 @@ internal sealed class CameraMonitor : IDisposable
         if (message != _lastProblem)
         {
             _lastProblem = message;
-            Logger.Log(message);
+            Logger.Warn(message);
         }
     }
 

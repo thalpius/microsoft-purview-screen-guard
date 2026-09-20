@@ -141,7 +141,7 @@ There is no config file yet; everything is a constant in the source. The ones yo
 | `FastScore` | 0.60 | `PhoneDetector.cs` | One frame at or above this confirms the phone |
 | `MinAreaFraction` | 0.01 | `PhoneDetector.cs` | Ignore boxes smaller than this fraction of the 640x640 input |
 | `HoldMs` | 3000 | `PhoneDetector.cs` | Phone stays *seen* this long after the last confirmation |
-| `HitLogMinScore` | 0.01 | `PhoneDetector.cs` | Lowest frame score printed as `[hit]` (scores are almost never exactly 0) |
+| `HitLogMinScore` | 0.10 | `PhoneDetector.cs` | Lowest phone score shown as a `HIT` line. An empty scene scores about 0.0001-0.015, so 0.10 shows the approach of a phone without flooding the console. `0` shows every frame |
 | `IdleIntervalMs` | 1000 | `PhoneDetector.cs` | While no sensitive document is visible the detector gets one frame per this many ms (CPU/battery). Keep it well below `DetectorStaleMs` |
 | `BlindStdDevThreshold` | 12 | `CameraHealth.cs` | Grayscale std deviation below this = blind |
 | `ReadyFrames` | 15 | `CameraHealth.cs` | Consecutive good frames before the camera is healthy |
@@ -156,19 +156,30 @@ To change the picture, replace `blocked.png` (any size, ideally a white backgrou
 
 ## Reading the log
 
-The guard prints one line per state change plus per-second camera statistics:
+The console shows one line per event in columns: **time, category, message**. Categories have their own color on a real console (`WORD` cyan, `CAMERA` dark cyan, `PHONE`/`HIT` magenta, `SCREEN` white, warnings yellow, errors red). When the output is redirected to a file you get the same text without any color codes.
+
+```
+14:14:38.283  HIT     0.15  ███░░░░░░░░░░░░░░░░░  weak
+14:14:39.281  HIT     0.45  █████████░░░░░░░░░░░  candidate: needs a 2nd frame to confirm
+14:14:40.280  HIT     0.72  ██████████████░░░░░░  STRONG: confirms the phone on its own
+14:14:40.351  PHONE   SEEN  confirmed at score 0.72; stays seen for 3 s after the last confirmation
+14:14:40.353  SCREEN  BLOCKED  phone seen  |  sensitive document visible  |  overlays visible: 1
+14:14:46.376  PHONE   cleared  in view 3.0 s, peak score 0.72, 3 frame(s) at or above 0.40
+14:14:46.378  SCREEN  clear    sensitive document visible  |  phone: none  |  camera: ok
+```
 
 | Line | Meaning |
 |---|---|
-| `STATE sensitive= phoneOverride= phoneDetected= cameraHealthy= blocked= overlaysVisible=` | The policy inputs and result, printed on every change |
-| `CAMERA healthy= phoneSeen= brightness= std= interval= lastScore= inference= model=` | Once per second. `reason="..."` is added when unhealthy |
-| `[hit] 0.72 at HH:mm:ss.fff` | A frame with a phone score of at least `HitLogMinScore`, with its capture time |
-| `PHONE state: SEEN / cleared` | The confirmed phone state changed |
-| `[reaction] N ms` | Overlay appeared because of a new phone: ms since the confirming frame was captured |
-| `Overlay shown: ... painted N ms after the block decision` | Time from the block decision until the overlay has painted |
-| `OPENED / CHANGED / CLOSED "..." label=...` | Word windows and their label GUID. **These lines contain document names**, keep the console output private |
-| `SLOW poll tick: N ms` | The UI thread was busy for N ms (the first Word poll always takes about 1.5 s) |
-| `Phone detector: model NOT loaded: ...` | Missing or wrong model. The camera counts as unhealthy |
+| `SCREEN BLOCKED ... / clear ...` | The screen state changed, with the reasons (phone seen, phone override, camera not healthy) and whether a sensitive document is visible |
+| `SCREEN overlay up ... painted N ms after the block decision` | An overlay was shown: time from the block decision until it had painted |
+| `CAMERA ok 32 fps \| brightness \| contrast \| AI N ms \| detector active/idle \| phone no/SEEN (score)` | Once per second (dim while everything is fine, yellow with the reason when the camera is `NOT OK`). *Contrast* is the grayscale standard deviation used for the blind check, *AI* is the last inference time |
+| `HIT 0.72 ████...` | A frame with a phone score of at least `HitLogMinScore`, drawn as a bar and timestamped with the moment the frame was captured. Verdicts: `weak`, `candidate: needs a 2nd frame`, `candidate: confirms the phone (2 of the last 3 frames)`, `STRONG: confirms the phone on its own` |
+| `PHONE SEEN` / `PHONE cleared ...` | The confirmed phone state changed. `cleared` ends with a summary of that sighting: how long it was in view, the peak score and how many frames were at or above `MinScore` |
+| `PHONE reaction: overlay up N ms after the phone frame was captured` | The overlay appeared because of a new phone: ms since the confirming frame was captured |
+| `PHONE detector ACTIVE / IDLE` | The detector switched between every frame (sensitive document visible) and about one frame per second |
+| `WORD opened / changed / closed "..." label <guid> IN BLOCK LIST` | Word windows, their label GUID and whether it is in `blocked-labels.txt`. **These lines contain document names**, keep the console output private |
+| `INFO first Word poll took N ms` / `WARN slow poll tick` | The first COM call to Word is always slow (about 1.5 s); a later slow tick means the UI thread was busy, and the overlay cannot react until it ends |
+| `ERROR model NOT loaded: ...` | Missing or wrong model. The camera counts as unhealthy and screens stay covered |
 
 ## Measured on the development machine
 

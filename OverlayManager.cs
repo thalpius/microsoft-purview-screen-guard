@@ -18,23 +18,23 @@ internal sealed class OverlayManager : IDisposable
         if (OverlayRenderer.TryLoadPicture(path, out Bitmap? picture, out string reason))
         {
             _picture = picture;
-            Logger.Log($"Overlay picture loaded: {picture!.Width}x{picture.Height} ({OverlayRenderer.PictureFileName})");
+            Logger.Info($"overlay picture loaded: {picture!.Width}x{picture.Height} ({OverlayRenderer.PictureFileName})");
         }
         else
         {
-            Logger.Log(
-                $"Overlay picture NOT loaded: {reason}. Overlays will be plain white with the text " +
-                $"\"{OverlayRenderer.FallbackText}\" (fail-closed).");
+            Logger.Warn(
+                $"overlay picture NOT loaded: {reason}. Overlays will be plain white with the text " +
+                $"\"{OverlayRenderer.FallbackText}\" (fail-closed)");
         }
 
         _signature = LayoutSignature();
         _overlays = CreateOverlays();
         SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
 
-        Logger.Log($"Overlays created (hidden): {_overlays.Count}");
+        Logger.Info($"{_overlays.Count} overlay(s) created, hidden until needed");
         foreach (OverlayForm overlay in _overlays)
         {
-            Logger.Log($"  overlay {overlay.Description}: rendered once in {overlay.RenderMs:F0} ms ({overlay.RenderInfo})");
+            Logger.Info($"  {overlay.Description}: rendered once in {overlay.RenderMs:F0} ms ({overlay.RenderInfo})");
         }
     }
 
@@ -81,10 +81,10 @@ internal sealed class OverlayManager : IDisposable
         _signature = signature;
 
         List<OverlayForm> fresh = CreateOverlays();
-        Logger.Log($"Monitor layout changed: {fresh.Count} monitor(s), overlays rebuilt");
+        Logger.Write(LogKind.Screen, $"monitor layout changed: {fresh.Count} monitor(s), overlays rebuilt");
         foreach (OverlayForm overlay in fresh)
         {
-            Logger.Log($"  overlay {overlay.Description}: rendered once in {overlay.RenderMs:F0} ms ({overlay.RenderInfo})");
+            Logger.Info($"  {overlay.Description}: rendered once in {overlay.RenderMs:F0} ms ({overlay.RenderInfo})");
         }
 
         // Cover the new layout first, then remove the old overlays, so there is no gap while blocked.
@@ -113,9 +113,13 @@ internal sealed class OverlayManager : IDisposable
         string painted = double.IsNaN(overlay.PaintedAfterMs)
             ? "NOT painted yet (waiting for the first paint)"
             : $"painted {overlay.PaintedAfterMs:F1} ms after the block decision";
-        Logger.Log(
-            $"Overlay shown: {overlay.Description}, IsWindowVisible={overlay.IsVisibleNow}, " +
-            $"SetWindowPos {setWindowPosMs:F1} ms, {painted} ({overlay.RenderInfo})");
+        Logger.Write(
+            LogKind.Screen,
+            new Seg("overlay up  ", ConsoleColor.White),
+            new Seg(
+                $"{overlay.Description}  |  visible: {(overlay.IsVisibleNow ? "yes" : "NO")}  |  " +
+                $"SetWindowPos {setWindowPosMs:F1} ms  |  {painted}  |  {overlay.RenderInfo}",
+                ConsoleColor.Gray));
     }
 
     private List<OverlayForm> CreateOverlays()
@@ -132,7 +136,7 @@ internal sealed class OverlayManager : IDisposable
     }
 
     private static void OnLatePaint(OverlayForm overlay, double ms) =>
-        Logger.Log($"Overlay {overlay.Description}: first paint came late, {ms:F1} ms after the block decision");
+        Logger.Warn($"overlay {overlay.Description}: first paint came late, {ms:F1} ms after the block decision");
 
     private static string LayoutSignature() =>
         string.Join(";", Screen.AllScreens.Select(s => $"{s.DeviceName}:{s.Bounds}"));

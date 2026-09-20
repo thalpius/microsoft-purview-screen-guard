@@ -28,8 +28,11 @@ internal static class PhoneSettings
     /// </summary>
     public const long IdleIntervalMs = 1000;
 
-    /// <summary>Frames with a score below this are not logged as "[hit]" (class scores are almost never exactly 0).</summary>
-    public const double HitLogMinScore = 0.01;
+    /// <summary>
+    /// Frames with a phone score below this are not shown as a HIT line. Scores of an empty scene are around 0.0001-0.015,
+    /// so anything from about 0.10 up is worth seeing (the approach of a phone). Lower it to see more, 0 shows every frame.
+    /// </summary>
+    public const double HitLogMinScore = 0.10;
 
     public const string ModelFileName = "yolov8n.onnx";
     public const int InputSize = 640;
