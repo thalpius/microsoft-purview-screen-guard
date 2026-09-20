@@ -224,6 +224,7 @@ This is a demo. Known gaps:
 | Nothing ever blocks | `blocked-labels.txt` is missing/empty, or the document's label GUID is not in it. Open the document and read the `OPENED ... label=` line. |
 | `WARN ... can't be used to capture by index` every second | OpenCV noise while the camera cannot be opened. |
 | Overlay appears late | See the measurements above; check `[reaction]` and `painted ... ms` in the log. |
+| The overlay shows for about 3 s right after start, without a phone | Expected: fail-closed start-up. A sensitive document is already open and the camera is not warmed up yet, so the guard blocks until `CAMERA warm-up complete`. Start the guard **before** you open the sensitive document and you will not see it. |
 | First launch of a new build is slow | The large native DLLs (OpenCV 65 MB, ffmpeg 27 MB, ONNX Runtime 16 MB) take longer to load the first time; the screen stays covered meanwhile. |
 
 ## Privacy
